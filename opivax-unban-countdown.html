@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unban Countdown</title>
+  <meta name="description" content="Live countdown timer to a specific date and time." />
+  <style>
+    :root{
+      --bg: #0b0d10; --card:#13161a; --text:#e7eef7; --muted:#9fb3c8; --accent:#66d9ef; --accent2:#a78bfa; --good:#34d399; --bad:#ef4444;
+    }
+    @media (prefers-color-scheme: light){
+      :root{ --bg:#f7fafc; --card:#ffffff; --text:#0b0d10; --muted:#5b6b7a; --accent:#0077ff; --accent2:#6b4eff; }
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background:var(--bg); color:var(--text); display:grid; place-items:center;}
+    .wrap{width:min(900px, 94vw); padding:24px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); backdrop-filter: blur(10px); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,.35)}
+    h1{margin:0 0 12px; font-weight:800; letter-spacing:.2px; font-size:clamp(24px, 3.6vw, 38px)}
+    .subtitle{color:var(--muted); margin-bottom:18px}
+    .row{display:flex; gap:14px; flex-wrap:wrap}
+    .tile{flex:1; min-width:120px; background:var(--card); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:16px 14px; text-align:center}
+    .num{font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "ss01" 1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:clamp(34px, 7vw, 64px); font-weight:900; line-height:1}
+    .label{margin-top:6px; color:var(--muted); font-size:14px; letter-spacing:.4px; text-transform:uppercase}
+    .target{margin-top:18px; font-size:14px; color:var(--muted)}
+    .controls{margin-top:20px; display:flex; gap:10px; flex-wrap:wrap}
+    button, input, select{color:var(--text)}
+    .btn{background:linear-gradient(135deg, var(--accent), var(--accent2)); border:none; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer}
+    .btn.secondary{background:transparent; border:1px solid rgba(255,255,255,0.15)}
+    .inputs{display:grid; grid-template-columns: 1fr 1fr; gap:10px; width:100%}
+    .inputs input, .inputs select{background:var(--card); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:10px; width:100%}
+    .small{font-size:12px; color:var(--muted)}
+    .ok{color:var(--good)}
+    .err{color:var(--bad)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-variant-numeric: tabular-nums}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 id="title">Unban Countdown</h1>
+      <div class="subtitle">Live countdown to your exact unban moment.</div>
+
+      <div class="row" role="timer" aria-live="polite">
+        <div class="tile"><div class="num" id="d">0</div><div class="label">Days</div></div>
+        <div class="tile"><div class="num" id="h">00</div><div class="label">Hours</div></div>
+        <div class="tile"><div class="num" id="m">00</div><div class="label">Minutes</div></div>
+        <div class="tile"><div class="num" id="s">00</div><div class="label">Seconds</div></div>
+      </div>
+
+      <div class="target" id="targetText"></div>
+
+      <div class="controls">
+        <div class="inputs">
+          <input id="titleInput" type="text" placeholder="Title" />
+          <input id="dateInput" type="datetime-local" step="1" />
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="applyBtn">Start / Update</button>
+          <button class="btn secondary" id="shareBtn">Copy Share Link</button>
+          <button class="btn secondary" id="discordBtn">Copy Discord Timestamp</button>
+        </div>
+        <div class="small" id="status"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Default target: 19 Dec 2025 10:12:20 GMT exactly (your unban time)
+    const DEFAULT_ISO = '2025-12-19T10:12:20Z';
+
+    const $ = (id)=>document.getElementById(id);
+    const dEl=$('d'), hEl=$('h'), mEl=$('m'), sEl=$('s');
+    const titleEl=$('title');
+    const titleInput=$('titleInput');
+    const dateInput=$('dateInput');
+    const targetText=$('targetText');
+    const statusEl=$('status');
+
+    let targetDate = null; // Date object in UTC
+
+    function pad(n){return String(n).padStart(2,'0')}
+
+    function fmtUTC(dt){
+      // Show both local time and UTC so there's no confusion
+      try{
+        const local = new Intl.DateTimeFormat(undefined, {dateStyle:'full', timeStyle:'long'}).format(dt);
+        const utc   = new Intl.DateTimeFormat('en-GB', {dateStyle:'full', timeStyle:'long', timeZone:'UTC'}).format(dt);
+        return `Target: ${local} (your local time) · ${utc} (UTC)`;
+      }catch(e){
+        return 'Target: '+ dt.toUTCString();
+      }
+    }
+
+    function tick(){
+      if(!targetDate){ return }
+      const now = new Date();
+      let ms = targetDate - now;
+      if (ms < 0) ms = 0;
+      const sec = Math.floor(ms/1000);
+      const days = Math.floor(sec / 86400);
+      const hours = Math.floor((sec % 86400) / 3600);
+      const mins = Math.floor((sec % 3600) / 60);
+      const secs = sec % 60;
+      dEl.textContent = days;
+      hEl.textContent = pad(hours);
+      mEl.textContent = pad(mins);
+      sEl.textContent = pad(secs);
+    }
+
+    let rafId;
+    function loop(){
+      tick();
+      rafId = setTimeout(loop, 250); // 4Hz update looks snappy without burning CPU
+    }
+
+    function setTargetFromISO(isoString){
+      // ISO must be absolute (with Z or timezone offset)
+      try{
+        const dt = new Date(isoString);
+        if (isNaN(dt)) throw new Error('Invalid date');
+        targetDate = dt;
+        targetText.textContent = fmtUTC(targetDate);
+        status('Countdown set.', true);
+      }catch(e){ status('Invalid date/time.', false); }
+    }
+
+    function status(msg, ok){ statusEl.textContent = msg; statusEl.className = 'small ' + (ok? 'ok':'err'); }
+
+    function readParams(){
+      const u = new URL(location.href);
+      const title = u.searchParams.get('title') || 'Unban Countdown';
+      const iso = u.searchParams.get('date');
+      titleEl.textContent = titleInput.value = title;
+
+      // For the datetime-local input we must provide local time (no Z)
+      const init = iso ? new Date(iso) : new Date(DEFAULT_ISO);
+      if (!isNaN(init)){
+        // Convert target UTC -> local input value
+        const localISO = new Date(init.getTime() - init.getTimezoneOffset()*60000).toISOString().slice(0,19);
+        dateInput.value = localISO;
+        setTargetFromISO( (iso||DEFAULT_ISO) );
+      } else {
+        setTargetFromISO(DEFAULT_ISO);
+      }
+    }
+
+    function apply(){
+      const t = titleInput.value.trim() || 'Countdown';
+      titleEl.textContent = t;
+      // datetime-local returns local time without zone; convert to UTC ISO
+      const local = dateInput.value; // e.g., 2025-12-19T10:12:20
+      if(!local){ return status('Pick a date/time first.', false) }
+      const dtLocal = new Date(local);
+      if (isNaN(dtLocal)) return status('That date/time is invalid.', false);
+      const dtUTC = new Date(dtLocal.getTime() + dtLocal.getTimezoneOffset()*60000);
+      const isoUTC = dtUTC.toISOString();
+      setTargetFromISO(isoUTC);
+    }
+
+    function copy(text){ navigator.clipboard.writeText(text).then(()=>status('Copied!', true)).catch(()=>status('Copy failed. You can copy manually.', false)); }
+
+    function share(){
+      // Produce a clean URL with ?title= & ?date=ISO8601 (UTC)
+      if(!targetDate) return status('Set a target first.', false);
+      const title = encodeURIComponent(titleEl.textContent);
+      const iso = targetDate.toISOString();
+      const url = `${location.origin}${location.pathname}?title=${title}&date=${encodeURIComponent(iso)}`;
+      copy(url);
+    }
+
+    function copyDiscord(){
+      if(!targetDate) return status('Set a target first.', false);
+      const seconds = Math.floor(targetDate.getTime()/1000);
+      copy(`<t:${seconds}:R>` + " (relative)\n" + `<t:${seconds}:F>` + " (full)");
+    }
+
+    $('applyBtn').addEventListener('click', apply);
+    $('shareBtn').addEventListener('click', share);
+    $('discordBtn').addEventListener('click', copyDiscord);
+
+    readParams();
+    loop();
+  </script>
+</body>
+</html>
